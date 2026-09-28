@@ -171,6 +171,27 @@ describe('comment tools (#738)', () => {
     expect(commentAuthorForClient('  ')).toBe('Assistant')
   })
 
+  it('signs with the client of the session that made the call', async () => {
+    let stored: Array<Record<string, unknown>> = []
+    const notes = backend({
+      readNote: async () => ({ path: 'inbox/Plan.md', body: '# Plan\n' }) as never,
+      listComments: async () => stored as never,
+      writeComments: async (_rel, comments) => {
+        stored = comments.map((c, i) => ({ ...c, id: (c as { id?: string }).id ?? `c${i + 1}` }))
+        return stored as never
+      }
+    })
+    const add = async (clientName: string | null) =>
+      (
+        (await callTool('add_comment', { path: 'inbox/Plan.md', body: `hi from ${clientName}` }, notes, {
+          clientName
+        })) as { author: string }
+      ).author
+    expect(await add('hermes')).toBe('Hermes')
+    expect(await add('claude-code')).toBe('Claude Code')
+    expect(await add(null)).toBe('Assistant')
+  })
+
   it('reply_to_comment threads under the top-level comment with the author', async () => {
     let stored: Array<Record<string, unknown>> = [
       {

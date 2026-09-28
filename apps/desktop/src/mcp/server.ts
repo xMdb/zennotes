@@ -25,19 +25,28 @@ import { RemoteRequestError } from '../main/remote/connection.js'
 import type { NoteFolder } from './vault-ops.js'
 import { addComment, listCommentThreads, replyToComment, resolveComment } from './comment-ops.js'
 
+/** Per-session facts a tool may need beyond its arguments. */
+export interface ToolContext {
+  /** The MCP client's name from the initialize handshake, if it sent one. */
+  clientName: string | null
+}
+
 interface ToolDef {
   schema: Tool
-  handler: (args: Record<string, unknown>, backend: VaultBackend) => Promise<unknown>
+  handler: (
+    args: Record<string, unknown>,
+    backend: VaultBackend,
+    context: ToolContext
+  ) => Promise<unknown>
 }
 
 /* ---------- Comment authorship ---------------------------------------- */
 
 // The MCP client's name from the initialize handshake ("claude-code",
 // "claude-ai", "codex-cli"), read as a display name so a comment left by an
-// assistant says who left it. Set once the session is initialized; the
+// assistant says who left it. It is per session (ToolContext), not per
+// process: one standalone HTTP server can serve several clients at once. The
 // fallback covers direct callTool use and clients that send nothing.
-let connectedClientName: string | null = null
-
 const CLIENT_DISPLAY_NAMES: Record<string, string> = {
   'claude-ai': 'Claude',
   'claude-code': 'Claude Code',
@@ -56,10 +65,6 @@ export function commentAuthorForClient(clientName: string | null | undefined): s
     .filter(Boolean)
     .map((word) => word[0].toUpperCase() + word.slice(1))
     .join(' ')
-}
-
-function defaultCommentAuthor(): string {
-  return commentAuthorForClient(connectedClientName)
 }
 
 /* ---------- Argument helpers ----------------------------------------- */
@@ -119,7 +124,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'vault_info',
       description:
-        'Return where the currently configured ZenNotes vault lives (a folder on this machine, or a self-hosted server the desktop app is connected to) and its top-level layout. Call this once at the start of a session to confirm you are pointing at the right vault, and to learn whether the user runs in `inbox` or `root` primary mode (the answer changes how every other tool behaves).',
+        'Return where the currently configured ZenNotes vault lives (a folder on this machine, or a self-hosted ZenNotes server) and its top-level layout. Call this once at the start of a session to confirm you are pointing at the right vault, and to learn whether the user runs in `inbox` or `root` primary mode (the answer changes how every other tool behaves).',
       inputSchema: { type: 'object', properties: {} }
     },
     handler: async (_args, backend) => {
@@ -146,11 +151,11 @@ const TOOLS: ToolDef[] = [
           subfolders: folders,
           authConfigured: description.authConfigured,
           notes:
-            'This vault lives on a self-hosted ZenNotes server, the workspace the desktop app currently has open. Every tool works on it through the server API; paths are vault-relative POSIX paths exactly as the server reports them. ' +
+            'This vault lives on a self-hosted ZenNotes server. Every tool works on it through the server API; paths are vault-relative POSIX paths exactly as the server reports them. ' +
             pathNotes +
             (description.authConfigured
               ? ''
-              : ' No token is configured for this server in this process. If calls fail with 401, set ZENNOTES_REMOTE_TOKEN in the MCP server\'s environment to the token the server was started with.')
+              : ' No token is configured for this server in this process. If calls fail with 401, set ZENNOTES_REMOTE_TOKEN in the MCP server\'s environment (or pass --token / --token-file) to the token the server was started with.')
         }
       }
       const vault = description.root
@@ -872,12 +877,12 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'body']
       }
     },
-    handler: async (args, backend) =>
+    handler: async (args, backend, context) =>
       await addComment(backend, {
         path: requireString(args, 'path'),
         body: requireString(args, 'body'),
         anchorText: optionalString(args, 'anchor_text'),
-        author: optionalString(args, 'author') ?? defaultCommentAuthor()
+        author: optionalString(args, 'author') ?? commentAuthorForClient(context.clientName)
       })
   },
   {
@@ -899,12 +904,12 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'id', 'body']
       }
     },
-    handler: async (args, backend) =>
+    handler: async (args, backend, context) =>
       await replyToComment(backend, {
         path: requireString(args, 'path'),
         id: requireString(args, 'id'),
         body: requireString(args, 'body'),
-        author: optionalString(args, 'author') ?? defaultCommentAuthor()
+        author: optionalString(args, 'author') ?? commentAuthorForClient(context.clientName)
       })
   },
   {
@@ -938,11 +943,12 @@ const TOOLS: ToolDef[] = [
 export async function callTool(
   name: string,
   args: Record<string, unknown>,
-  backend: VaultBackend
+  backend: VaultBackend,
+  context: ToolContext = { clientName: null }
 ): Promise<unknown> {
   const tool = TOOLS.find((t) => t.schema.name === name)
   if (!tool) throw new Error(`Unknown tool: ${name}`)
-  return await tool.handler(args, backend)
+  return await tool.handler(args, backend, context)
 }
 
 export function listToolNames(): string[] {
@@ -959,8 +965,8 @@ export function describeToolError(err: unknown): string {
   if (err instanceof RemoteRequestError && (err.status === 401 || err.status === 403)) {
     return (
       `${message} The MCP server has no valid token for this ZenNotes server. Set ZENNOTES_REMOTE_TOKEN ` +
-      'in the MCP server\'s environment (the desktop app\'s copy lives in the OS secret store, which zn cannot read), ' +
-      'or run zn with --token.'
+      'in the MCP server\'s environment, or start it with --token (zennotes-mcp also takes --token-file). ' +
+      'The desktop app keeps its own copy in the OS secret store, which the MCP server cannot read.'
     )
   }
   return message
@@ -1018,10 +1024,6 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     }
   )
 
-  server.oninitialized = () => {
-    connectedClientName = server.getClientVersion()?.name ?? null
-  }
-
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS.map((t) => t.schema)
   }))
@@ -1037,7 +1039,9 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     }
     try {
       const backend = await getBackend()
-      const result = await tool.handler((args ?? {}) as Record<string, unknown>, backend)
+      const result = await tool.handler((args ?? {}) as Record<string, unknown>, backend, {
+        clientName: server.getClientVersion()?.name ?? null
+      })
       const payload =
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
       return { content: [{ type: 'text', text: payload }] }

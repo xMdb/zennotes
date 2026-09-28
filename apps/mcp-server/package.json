@@ -1,0 +1,37 @@
+{
+  "name": "@zennotes/mcp-server",
+  "version": "2.56.0",
+  "description": "The ZenNotes MCP server as a standalone Node.js program, for a remote ZenNotes server or a local vault",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZenNotes/zennotes.git",
+    "directory": "apps/mcp-server"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "zennotes-mcp": "dist/zennotes-mcp.mjs"
+  },
+  "files": [
+    "dist/zennotes-mcp.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/node": "^25.6.0",
+    "esbuild": "^0.25.1",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6"
+  }
+}
