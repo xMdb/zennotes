@@ -562,6 +562,22 @@ The MCP server exposes vault operations such as:
 - listing files/assets
 - toggling tasks
 
+### Standalone MCP server (Windows, Linux, WSL, remote vaults)
+
+[`apps/mcp-server`](apps/mcp-server/README.md) builds the same MCP server as a
+single, dependency-free Node.js file, `zennotes-mcp.mjs`. It runs with plain
+`node` on Windows, Linux (including WSL) and macOS with no desktop app
+installed, and can point at a remote ZenNotes server with its auth token:
+
+```bash
+npm run build --workspace @zennotes/mcp-server
+node apps/mcp-server/dist/zennotes-mcp.mjs --server https://notes.example.com --token-file ~/zennotes-token --check
+```
+
+It speaks stdio (for agents that start it themselves) or Streamable HTTP (for
+agents in WSL, containers, or on other machines). See its README for Hermes
+Agent, Claude, Codex and WSL setups.
+
 ## Building and packaging desktop releases
 
 ### Build everything

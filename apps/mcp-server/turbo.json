@@ -1,0 +1,30 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/desktop/src/**",
+        "$TURBO_ROOT$/packages/shared-domain/src/**",
+        "$TURBO_ROOT$/packages/bridge-contract/src/**"
+      ]
+    },
+    "test:run": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/desktop/src/**",
+        "$TURBO_ROOT$/packages/shared-domain/src/**",
+        "$TURBO_ROOT$/packages/bridge-contract/src/**"
+      ]
+    },
+    "build": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/desktop/src/**",
+        "$TURBO_ROOT$/packages/shared-domain/src/**",
+        "$TURBO_ROOT$/packages/bridge-contract/src/**"
+      ]
+    }
+  }
+}
